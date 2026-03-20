@@ -18,11 +18,11 @@ from run import run_experiment
 
 RESULTS = "results.tsv"
 
-# Quick phase: fast filter (~60s on A10G, ~$0.10)
-QUICK = dict(max_iters=1000, n_layer=6, n_head=6, n_embd=384, batch_size=64, block_size=256, timeout=600)
+# Quick phase: fast filter (~30s on H100, ~$0.20)
+QUICK = dict(max_iters=1000, n_layer=6, n_head=6, n_embd=384, batch_size=128, block_size=256, timeout=600)
 
-# Full phase: real validation (~10min on H100, ~$1.00)
-FULL = dict(max_iters=5000, n_layer=8, n_head=8, n_embd=512, batch_size=64, block_size=256, timeout=1800)
+# Full phase: real validation (~5min on H100, ~$1.50)
+FULL = dict(max_iters=5000, n_layer=8, n_head=8, n_embd=512, batch_size=128, block_size=256, timeout=1800)
 
 
 def read_best():
@@ -75,7 +75,7 @@ def main():
     p = argparse.ArgumentParser(description="nanoGPT autoresearch via MPP")
     p.add_argument("hypothesis", nargs="?", help="What are you testing?")
     p.add_argument("--train-py", help="Path to modified train.py")
-    p.add_argument("--gpu", default="A10G")
+    p.add_argument("--gpu", default="H100")
     p.add_argument("--baseline", action="store_true", help="Run baseline (no custom train.py)")
     p.add_argument("--quick-only", action="store_true", help="Skip full validation phase")
     p.add_argument("--full-only", action="store_true", help="Skip quick, run full directly")

@@ -16,26 +16,35 @@ IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
 B, D, G, Y, C, M, X = "\033[1m", "\033[2m", "\033[32m", "\033[33m", "\033[36m", "\033[35m", "\033[0m"
 
 
-def tempo(path, data, quiet=False):
-    if not quiet:
-        print(f"  {D}→ POST {path}{X}", file=sys.stderr)
-    r = subprocess.run(
-        [TEMPO, "request", "-t", "-X", "POST", "--json", json.dumps(data), MODAL + path],
-        capture_output=True, text=True, timeout=1200,
-    )
-    out = r.stdout.strip()
-    if r.returncode != 0:
-        raise RuntimeError(f"tempo error (rc={r.returncode}): {r.stderr.strip()}\n{out[:500]}")
-    parsed = {}
-    for line in out.split("\n"):
-        line = line.strip()
-        if not line or ":" not in line:
-            continue
-        k, _, v = line.partition(":")
-        k = k.strip()
-        if k in ("sandbox_id", "stdout", "stderr", "returncode", "status"):
-            parsed[k] = v.strip().strip('"').replace("\\n", "\n")
-    return parsed
+def tempo(path, data, quiet=False, retries=3):
+    for attempt in range(retries):
+        if not quiet:
+            print(f"  {D}→ POST {path}{X}", file=sys.stderr)
+        r = subprocess.run(
+            [TEMPO, "request", "-t", "-X", "POST", "--json", json.dumps(data), MODAL + path],
+            capture_output=True, text=True, timeout=1200,
+        )
+        out = r.stdout.strip()
+        if r.returncode != 0:
+            is_payment_err = "E_PAYMENT" in out or "payment" in out.lower()
+            if is_payment_err and attempt < retries - 1:
+                wait = 5 * (attempt + 1)
+                if not quiet:
+                    print(f"  {Y}⚠ Payment error, retrying in {wait}s (attempt {attempt+2}/{retries})...{X}", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            raise RuntimeError(f"tempo error (rc={r.returncode}): {r.stderr.strip()}\n{out[:500]}")
+        parsed = {}
+        for line in out.split("\n"):
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            k, _, v = line.partition(":")
+            k = k.strip()
+            if k in ("sandbox_id", "stdout", "stderr", "returncode", "status"):
+                parsed[k] = v.strip().strip('"').replace("\\n", "\n")
+        return parsed
+    raise RuntimeError("tempo: all retries exhausted")
 
 
 def ex(sb, cmd, quiet=False):
@@ -137,14 +146,26 @@ def run_experiment(
 
         # 4. Poll for completion
         poll_interval = 15 if max_iters <= 1000 else 30
+        session_expired = False
         while time.time() - t0 < timeout:
             time.sleep(poll_interval)
-            r = ex(sb, ["bash", "-c", "cat /tmp/ok 2>/dev/null || echo WAIT"], quiet=True)
+            try:
+                r = ex(sb, ["bash", "-c", "cat /tmp/ok 2>/dev/null || echo WAIT"], quiet=True)
+            except RuntimeError as e:
+                if "E_PAYMENT" in str(e) or "payment" in str(e).lower():
+                    if not quiet:
+                        print(f"  {Y}⚠ Payment session expired during polling{X}", file=sys.stderr)
+                    session_expired = True
+                    break
+                raise
             done = "DONE" in (r.get("stdout", "") or "")
 
             if not quiet:
-                r2 = ex(sb, ["bash", "-c", "tail -1 /tmp/run.log 2>/dev/null"], quiet=True)
-                tail = (r2.get("stdout", "") or "").strip().split("\n")[-1].strip()
+                try:
+                    r2 = ex(sb, ["bash", "-c", "tail -1 /tmp/run.log 2>/dev/null"], quiet=True)
+                    tail = (r2.get("stdout", "") or "").strip().split("\n")[-1].strip()
+                except RuntimeError:
+                    tail = "?"
                 elapsed = int(time.time() - t0)
                 mark = f"{G}✓ DONE{X}" if done else f"{D}{tail[:80]}{X}"
                 print(f"  {D}[{elapsed:>4}s]{X} {mark}", file=sys.stderr)
@@ -155,8 +176,14 @@ def run_experiment(
         elapsed = time.time() - t0
 
         # 5. Read full log
-        r = ex(sb, ["cat", "/tmp/run.log"], quiet=True)
-        log = r.get("stdout", "") or ""
+        log = ""
+        if not session_expired:
+            try:
+                r = ex(sb, ["cat", "/tmp/run.log"], quiet=True)
+                log = r.get("stdout", "") or ""
+            except RuntimeError:
+                if not quiet:
+                    print(f"  {Y}⚠ Could not read log (session expired){X}", file=sys.stderr)
 
         # 6. Extract metrics from log
         # nanoGPT prints: "step N: train loss X.XXXX, val loss Y.YYYY"

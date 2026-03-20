@@ -53,12 +53,12 @@ Every experiment runs in two phases:
 
 | Phase | Iters | Model | GPU | Cost | Time | Purpose |
 |-------|-------|-------|-----|------|------|---------|
-| QUICK | 1000 | 6L/6H/384E (~10M params) | A10G | ~$0.10 | ~60s | Fast filter — does this idea help at all? |
-| FULL | 5000 | 8L/8H/512E (~25M params) | A10G | ~$1.00 | ~10min | Real validation — does it hold at scale? |
+| QUICK | 1000 | 6L/6H/384E (~10M params) | H100 | ~$0.20 | ~30s | Fast filter — does this idea help at all? |
+| FULL | 5000 | 8L/8H/512E (~25M params) | H100 | ~$1.50 | ~5min | Real validation — does it hold at scale? |
 
-Default GPU is **A10G** (24GB VRAM). Use `--gpu H100` for even faster full runs.
+Default GPU is **H100** (80GB VRAM). Native bfloat16 + torch.compile, no patches needed.
 
-The quick phase gates the full phase. If quick val_loss is >2% worse than the current best, the experiment is discarded without running full. This saves ~$1 and ~10 minutes per bad idea.
+The quick phase gates the full phase. If quick val_loss is >2% worse than the current best, the experiment is discarded without running full. This saves ~$1.50 and ~5 minutes per bad idea.
 
 ### Flags
 
@@ -102,7 +102,7 @@ run	val_loss	gpu	phase	elapsed	status	description
 - **Start with quick-only**: Use `--quick-only` for rapid hypothesis testing (~90s per experiment)
 - **Scale up winners**: Once a quick experiment shows promise, let it run the full pipeline
 - **GPU consistency**: val_loss results are only comparable within the same GPU type
-- **Cost**: Quick ~$0.10, Full ~$1.00. Budget ~$15-20 for a 20-experiment session.
+- **Cost**: Quick ~$0.20, Full ~$1.50. Budget ~$25-30 for a 20-experiment session.
 - **Custom train.py**: Read nanoGPT's train.py first, then modify surgically. Small diffs = easier debugging.
 - **Combine wins**: After finding 2-3 improvements that each help individually, combine them.
 
