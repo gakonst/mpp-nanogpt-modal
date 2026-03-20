@@ -4,27 +4,6 @@
 
 Train [nanoGPT](https://github.com/karpathy/nanoGPT) on a cloud GPU, paid with stablecoins via [MPP](https://mpp.dev). No API keys. No signup. Just HTTP 402.
 
-## What happens
-
-```
-run.py                              Modal (via MPP)
-  │                                     │
-  ├── POST /sandbox/create ────────────►│
-  │◄── 402 Payment Required ───────────┤
-  │                                     │
-  ├── [pay USDC on Tempo] ────────────►│
-  │◄── 200 {sandbox_id} ──────────────┤
-  │                                     │
-  ├── POST /sandbox/exec ──────────────►│  clone nanoGPT, prepare data,
-  │    (background + poll)              │  train 500 iters, sample text
-  │◄── {stdout, val_loss} ────────────┤
-  │                                     │
-  ├── POST /sandbox/terminate ─────────►│
-  └── done.                             └──
-```
-
-An agent pays for a T4 GPU sandbox on [Modal](https://modal.com) through the [Machine Payments Protocol](https://mpp.dev). Payment settles instantly on the [Tempo](https://tempo.xyz) blockchain in USDC. The sandbox runs nanoGPT on Shakespeare — 500 training iterations, then generates text. ~90 seconds end-to-end.
-
 ## Quick start
 
 ```bash
@@ -43,22 +22,28 @@ python run.py
 ╔══════════════════════════════════════════════════╗
 ║      nanoGPT × MPP × Modal                       ║
 ║  Train GPT on Shakespeare, paid in stablecoins.  ║
+║  No API keys. No signup. Just HTTP 402.          ║
 ╚══════════════════════════════════════════════════╝
 
   💰 Creating T4 sandbox — paying USDC via Tempo...
-  ✓ Sandbox sb-XfsQooNM352iel0w1QkWvZ (14s)
+  ✓ Sandbox sb-i0wAVkwVmw1acszCAnUoh8 (15s)
+    Image: pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+    GPU: Tesla T4 (16GB)
 
   🚀 Launching experiment...
-    [ 12s] scaler = torch.cuda.amp.GradScaler(...)
-    [ 82s] ---------------
+    git clone nanoGPT → prepare shakespeare → train 500 iters → sample
 
-  ✓ Done in 90s
+    [ 12s] ---------------
+    [ 61s] ---------------
+
+  ✓ Done in 97s
 
   ════════════════════════════════════════════════════
+  length of dataset in characters: 1,115,394
   vocab size: 65
   number of parameters: 0.80M
-
   step 0: train loss 4.1920, val loss 4.1879
+  iter 50: loss 2.8890, time 10.79ms, mfu 1.55%
   step 100: train loss 2.5571, val loss 2.5548
   step 200: train loss 2.4717, val loss 2.4678
   step 300: train loss 2.4222, val loss 2.4234
@@ -67,20 +52,48 @@ python run.py
 
   Generated Shakespeare:
   CANIIO:
-  Ror wcowind to layer thadise myobe t eranthand my dalatangs...
+  Ror wcowind to layer thadise myobe t eranthand my dalatangs
+  ar hapar us he he. F dilasoate Iwice my.
+  DELOY:
+  Gorou wat thertof isth ble mil ndill, ath iree senghin lat
+  Herid ov the and th theanoureransesel lind te l.
   ════════════════════════════════════════════════════
+
+╔══════════════════════════════════════════════════╗
+║  GPU compute paid via Machine Payments Protocol  ║
+║  No API keys. No signup.  https://mpp.dev        ║
+╚══════════════════════════════════════════════════╝
 ```
 
-Loss: **4.19 → 2.37** in 500 iterations. Babbling Shakespeare from a 0.8M parameter GPT, trained on a cloud GPU paid with stablecoins.
+**97 seconds.** Loss 4.19 → 2.37. Babbling Shakespeare from a 0.8M parameter GPT, trained on a cloud T4 GPU paid with USDC stablecoins.
 
 ## How it works
 
-1. `run.py` calls `tempo request` to create a Modal GPU sandbox (HTTP 402 → pay USDC → get sandbox)
-2. One background exec runs everything: `git clone nanoGPT` → prepare Shakespeare data → train → sample
-3. Polls for completion, reads the training log
-4. Terminates the sandbox
+1. `run.py` calls `tempo request` to create a Modal GPU sandbox — the HTTP 402 payment flow is handled automatically by the Tempo CLI
+2. One background exec runs everything: install git + tiktoken → clone nanoGPT → prepare Shakespeare data (1MB) → train 500 iters → generate sample text
+3. Polls for completion every 12s, streams status
+4. Reads training log + generated text, terminates sandbox
 
-The pre-built Docker image (`pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`) has torch + numpy + requests already installed. Only git and tiktoken need installing at runtime.
+The pre-built Docker image (`pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime`) comes with torch + numpy + requests. Only `git` and `tiktoken` need installing at runtime (~10s).
+
+## What happens under the hood
+
+```
+run.py                              Modal (via MPP)
+  │                                     │
+  ├── POST /sandbox/create ────────────►│
+  │◄── 402 Payment Required ───────────┤
+  │                                     │
+  ├── [pay USDC on Tempo] ────────────►│
+  │◄── 200 {sandbox_id} ──────────────┤
+  │                                     │
+  ├── POST /sandbox/exec ──────────────►│  git clone, prepare, train, sample
+  │    (background + poll)              │  (~75s on T4)
+  │◄── {stdout, val_loss} ────────────┤
+  │                                     │
+  ├── POST /sandbox/terminate ─────────►│
+  └── done.                             └──
+```
 
 ## Links
 

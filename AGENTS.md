@@ -71,3 +71,14 @@ tempo request -t -X POST --json '{"sandbox_id":"sb-xxx"}' https://modal.mpp.temp
 ```
 
 Total time: ~90-110s. Loss: 4.19 → 2.37 (500 iters). Generates babbling Shakespeare.
+
+## Tempo stdout parsing
+
+The `-t` flag outputs YAML-like format. `stdout` is a single-line string with `\n` escape sequences:
+```
+stdout: "line1\nline2\nline3\n"
+stderr: ""
+returncode: 0
+```
+
+**Gotcha:** Long stdout (>~5000 chars) gets truncated. Use `head`/`tail` to read large log files in chunks instead of `cat`.
