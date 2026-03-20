@@ -118,6 +118,7 @@ def run_experiment(
         if lr is not None:
             train_args.append(f"--learning_rate={lr}")
         if dropout is not None:
+            parts.append(f"sed -i \"s/dropout = [0-9.]*/dropout = {dropout}/\" config/train_shakespeare_char.py")
             train_args.append(f"--dropout={dropout}")
 
         parts.append("python data/shakespeare_char/prepare.py")

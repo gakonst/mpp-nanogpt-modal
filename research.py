@@ -85,6 +85,7 @@ def main():
     p.add_argument("--quick-iters", type=int, help="Override quick phase iterations")
     p.add_argument("--full-iters", type=int, help="Override full phase iterations")
     p.add_argument("--lr", type=float, help="Learning rate override")
+    p.add_argument("--dropout", type=float, help="Dropout override")
     args = p.parse_args()
 
     if not args.hypothesis and not args.baseline:
@@ -101,8 +102,8 @@ def main():
         print(f"  Best {phase} val_loss: {vl:.6f}")
     print(f"{'='*60}\n")
 
-    quick_cfg = {**QUICK, "gpu": gpu, "lr": args.lr}
-    full_cfg = {**FULL, "gpu": gpu, "lr": args.lr, "eval_interval": 500}
+    quick_cfg = {**QUICK, "gpu": gpu, "lr": args.lr, "dropout": args.dropout}
+    full_cfg = {**FULL, "gpu": gpu, "lr": args.lr, "dropout": args.dropout, "eval_interval": 500}
     if args.quick_iters:
         quick_cfg["max_iters"] = args.quick_iters
     if args.full_iters:
