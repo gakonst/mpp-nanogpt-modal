@@ -47,7 +47,7 @@ def run_experiment(
     n_layer=4, n_head=4, n_embd=128,
     batch_size=32, block_size=256,
     timeout=900, eval_interval=None, eval_iters=20,
-    lr=None, quiet=False,
+    lr=None, dropout=None, quiet=False,
 ):
     """
     Run one nanoGPT experiment on a Modal GPU sandbox.
@@ -117,6 +117,8 @@ def run_experiment(
         ]
         if lr is not None:
             train_args.append(f"--learning_rate={lr}")
+        if dropout is not None:
+            train_args.append(f"--dropout={dropout}")
 
         parts.append("python data/shakespeare_char/prepare.py")
         parts.append(f"python train.py config/train_shakespeare_char.py {' '.join(train_args)}")
@@ -201,6 +203,7 @@ def main():
     p.add_argument("--eval-interval", type=int)
     p.add_argument("--eval-iters", type=int, default=20)
     p.add_argument("--lr", type=float)
+    p.add_argument("--dropout", type=float)
     p.add_argument("--quiet", "-q", action="store_true")
     args = p.parse_args()
 
@@ -209,7 +212,7 @@ def main():
         n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd,
         batch_size=args.batch_size, block_size=args.block_size,
         timeout=args.timeout, eval_interval=args.eval_interval,
-        eval_iters=args.eval_iters, lr=args.lr, quiet=args.quiet,
+        eval_iters=args.eval_iters, lr=args.lr, dropout=args.dropout, quiet=args.quiet,
     )
 
     # Structured output to stdout (log excluded — too large)
