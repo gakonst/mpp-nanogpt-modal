@@ -23,9 +23,14 @@ def tempo(path, data):
         sys.exit(1)
     parsed = {}
     for line in out.split("\n"):
-        if ":" in line:
-            k, _, v = line.partition(":")
-            parsed[k.strip()] = v.strip().strip('"').replace("\\n", "\n")
+        line = line.strip()
+        if not line or ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        k = k.strip()
+        # Only parse known top-level keys (avoid matching colons inside stdout)
+        if k in ("sandbox_id", "stdout", "stderr", "returncode", "status"):
+            parsed[k] = v.strip().strip('"').replace("\\n", "\n")
     return parsed
 
 
@@ -112,42 +117,49 @@ def main():
         dt = time.time() - t0
         print(f"\n  {G}{B}✓ Done in {dt:.0f}s{X}\n")
 
-        # 4. Read full log
-        r = ex(sb, ["cat", "/tmp/run.log"])
+        # 4. Read full log (split into two reads to avoid truncation)
+        r = ex(sb, ["bash", "-c", "head -80 /tmp/run.log"])
         log = (r.get("stdout", "") or "")
+        r2 = ex(sb, ["bash", "-c", "tail -30 /tmp/run.log"])
+        sample_log = (r2.get("stdout", "") or "")
 
         print(f"  {B}{'═' * 52}{X}")
         in_sample = False
-        skip_prefixes = ("Overriding", "/", "Loading", "Initializing", "num ", "using ",
-                         "found ", "tokens ", "saving ", "step ", "#", "out_dir", "eval_",
-                         "log_", "always_", "wandb_", "dataset", "gradient_", "batch_",
-                         "block_", "n_layer", "n_head", "n_embd", "dropout", "learning_",
-                         "max_iters", "lr_decay", "min_lr", "beta2", "warmup_", "device",
-                         "compile", "scaler", "$ python")
         for line in log.split("\n"):
             s = line.strip()
-            if not s:
-                if in_sample:
-                    print()
-                continue
-            if "FutureWarning" in s or "torch.load" in s or "deprecated" in s:
-                continue
-            if "length of dataset" in s or "vocab size" in s or "has" in s and "tokens" in s:
-                print(f"  {D}{s}{X}")
-            elif s.startswith("number of parameters"):
-                print(f"  {C}{s}{X}")
-            elif "train loss" in s and "val loss" in s:
-                print(f"  {G}{B}{s}{X}")
-            elif s.startswith("iter"):
-                print(f"  {D}{s}{X}")
-            elif "------" in s:
+            # Toggle sample mode on separator lines
+            if "------" in s:
                 in_sample = not in_sample
                 if in_sample:
                     print(f"\n  {B}Generated Shakespeare:{X}")
-            elif in_sample:
+                continue
+            # Inside sample block: print everything
+            if in_sample:
+                print(f"  {M}{line.rstrip()}{X}")
+                continue
+            # Outside sample block: selective display
+            if not s or "FutureWarning" in s or "deprecated" in s:
+                continue
+            if s.startswith(("number of param",)):
+                print(f"  {C}{s}{X}")
+            elif "train loss" in s and "val loss" in s:
+                print(f"  {G}{B}{s}{X}")
+            elif s.startswith("iter") and "loss" in s:
+                print(f"  {D}{s}{X}")
+            elif "vocab size" in s or "length of dataset" in s:
+                print(f"  {D}{s}{X}")
+
+        # Print generated sample (text comes BEFORE the --- separator)
+        if sample_log:
+            print(f"\n  {B}Generated Shakespeare:{X}")
+            for line in sample_log.split("\n"):
+                s = line.strip()
+                if not s or "------" in s:
+                    continue
+                if s.startswith(("Loading", "number of param", "Overriding",
+                                 "No meta", "iter ", "step ", "saving ")):
+                    continue
                 print(f"  {M}{s}{X}")
-            elif not s.startswith(skip_prefixes):
-                pass  # skip config noise
         print(f"  {B}{'═' * 52}{X}")
 
         print(f"""
