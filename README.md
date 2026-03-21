@@ -13,7 +13,7 @@ tempo add request
 tempo wallet login
 
 # 2. Train a GPT on Shakespeare, paid with stablecoins
-python run.py
+python3 run.py
 ```
 
 ## Output
