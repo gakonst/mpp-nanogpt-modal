@@ -7,10 +7,9 @@ Train [nanoGPT](https://github.com/karpathy/nanoGPT) on a cloud GPU, paid with s
 ## Quick start
 
 ```bash
-# 1. Install Tempo CLI + wallet
-curl -L https://tempo.xyz/install | bash
-tempo add request
-tempo wallet login
+# 1. Install pympp + fund wallet
+pip install "pympp[tempo]"
+export TEMPO_PRIVATE_KEY="0x..."
 
 # 2. Train a GPT on Shakespeare, paid with stablecoins
 python run.py
@@ -69,7 +68,7 @@ python run.py
 
 ## How it works
 
-1. `run.py` calls `tempo request` to create a Modal GPU sandbox — the HTTP 402 payment flow is handled automatically by the Tempo CLI
+1. `run.py` uses [pympp](https://pypi.org/project/pympp/) to create a Modal GPU sandbox — the HTTP 402 payment flow is handled automatically by the Python SDK
 2. One background exec runs everything: install git + tiktoken → clone nanoGPT → prepare Shakespeare data (1MB) → train 500 iters → generate sample text
 3. Polls for completion every 12s, streams status
 4. Reads training log + generated text, terminates sandbox
