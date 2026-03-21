@@ -7,48 +7,44 @@ Usage:
     python run.py --max-iters 500 --n-layer 4              # quick experiment
     python run.py --train-py experiments/cosine.py --gpu T4 # custom train.py
 """
-import argparse, base64, json, os, re, subprocess, sys, time
+import argparse, asyncio, base64, json, os, re, sys, time
 
-TEMPO = os.path.expanduser("~/.local/bin/tempo")
+from mpp.client import Client
+from mpp.methods.tempo import tempo as tempo_method, TempoAccount, ChargeIntent
+
 MODAL = "https://modal.mpp.tempo.xyz"
 IMAGE = "pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime"
 
 B, D, G, Y, C, M, X = "\033[1m", "\033[2m", "\033[32m", "\033[33m", "\033[36m", "\033[35m", "\033[0m"
 
 
-def tempo(path, data, quiet=False, retries=3):
+def _make_client():
+    account = TempoAccount.from_env()
+    method = tempo_method(account=account, intents={"charge": ChargeIntent()})
+    return Client(methods=[method])
+
+
+async def _post(client, path, data, quiet=False, retries=3):
     for attempt in range(retries):
         if not quiet:
             print(f"  {D}→ POST {path}{X}", file=sys.stderr)
-        r = subprocess.run(
-            [TEMPO, "request", "-t", "-X", "POST", "--json", json.dumps(data), MODAL + path],
-            capture_output=True, text=True, timeout=1200,
-        )
-        out = r.stdout.strip()
-        if r.returncode != 0:
-            is_payment_err = "E_PAYMENT" in out or "payment" in out.lower()
+        resp = await client.post(MODAL + path, json=data, timeout=1200)
+        if resp.status_code >= 400:
+            text = resp.text
+            is_payment_err = "E_PAYMENT" in text or "payment" in text.lower()
             if is_payment_err and attempt < retries - 1:
                 wait = 5 * (attempt + 1)
                 if not quiet:
                     print(f"  {Y}⚠ Payment error, retrying in {wait}s (attempt {attempt+2}/{retries})...{X}", file=sys.stderr)
-                time.sleep(wait)
+                await asyncio.sleep(wait)
                 continue
-            raise RuntimeError(f"tempo error (rc={r.returncode}): {r.stderr.strip()}\n{out[:500]}")
-        parsed = {}
-        for line in out.split("\n"):
-            line = line.strip()
-            if not line or ":" not in line:
-                continue
-            k, _, v = line.partition(":")
-            k = k.strip()
-            if k in ("sandbox_id", "stdout", "stderr", "returncode", "status"):
-                parsed[k] = v.strip().strip('"').replace("\\n", "\n")
-        return parsed
-    raise RuntimeError("tempo: all retries exhausted")
+            raise RuntimeError(f"API error ({resp.status_code}): {text[:500]}")
+        return resp.json()
+    raise RuntimeError("API: all retries exhausted")
 
 
-def ex(sb, cmd, quiet=False):
-    return tempo("/sandbox/exec", {"sandbox_id": sb, "command": cmd}, quiet=quiet)
+async def _exec(client, sb, cmd, quiet=False):
+    return await _post(client, "/sandbox/exec", {"sandbox_id": sb, "command": cmd}, quiet=quiet)
 
 
 def run_experiment(
@@ -69,16 +65,33 @@ def run_experiment(
         max_iters    - iterations trained
         log          - full training log text
     """
+    return asyncio.run(_run_experiment(
+        train_py=train_py, gpu=gpu, max_iters=max_iters,
+        n_layer=n_layer, n_head=n_head, n_embd=n_embd,
+        batch_size=batch_size, block_size=block_size,
+        timeout=timeout, eval_interval=eval_interval, eval_iters=eval_iters,
+        lr=lr, dropout=dropout, quiet=quiet,
+    ))
+
+
+async def _run_experiment(
+    train_py=None, gpu="T4", max_iters=500,
+    n_layer=4, n_head=4, n_embd=128,
+    batch_size=32, block_size=256,
+    timeout=900, eval_interval=None, eval_iters=20,
+    lr=None, dropout=None, quiet=False,
+):
     if eval_interval is None:
         eval_interval = max_iters
 
     sb = None
-    try:
+    async with _make_client() as client:
+      try:
         # 1. Create sandbox
         if not quiet:
             print(f"  {C}Creating {gpu} sandbox...{X}", file=sys.stderr)
         t0 = time.time()
-        r = tempo("/sandbox/create", {"gpu": gpu, "timeout": timeout, "image": IMAGE}, quiet=quiet)
+        r = await _post(client, "/sandbox/create", {"gpu": gpu, "timeout": timeout, "image": IMAGE}, quiet=quiet)
         sb = r.get("sandbox_id")
         if not sb:
             raise RuntimeError(f"No sandbox_id in response: {r}")
@@ -142,15 +155,15 @@ def run_experiment(
         # 3. Launch in background
         if not quiet:
             print(f"  {C}Training {max_iters} iters ({n_layer}L/{n_head}H/{n_embd}E, bs={batch_size})...{X}", file=sys.stderr)
-        ex(sb, ["bash", "-c", f"({script}) > /tmp/run.log 2>&1 && echo DONE > /tmp/ok &\necho started"], quiet=quiet)
+        await _exec(client, sb, ["bash", "-c", f"({script}) > /tmp/run.log 2>&1 && echo DONE > /tmp/ok &\necho started"], quiet=quiet)
 
         # 4. Poll for completion
         poll_interval = 15 if max_iters <= 1000 else 30
         session_expired = False
         while time.time() - t0 < timeout:
-            time.sleep(poll_interval)
+            await asyncio.sleep(poll_interval)
             try:
-                r = ex(sb, ["bash", "-c", "cat /tmp/ok 2>/dev/null || echo WAIT"], quiet=True)
+                r = await _exec(client, sb, ["bash", "-c", "cat /tmp/ok 2>/dev/null || echo WAIT"], quiet=True)
             except RuntimeError as e:
                 if "E_PAYMENT" in str(e) or "payment" in str(e).lower():
                     if not quiet:
@@ -162,7 +175,7 @@ def run_experiment(
 
             if not quiet:
                 try:
-                    r2 = ex(sb, ["bash", "-c", "tail -1 /tmp/run.log 2>/dev/null"], quiet=True)
+                    r2 = await _exec(client, sb, ["bash", "-c", "tail -1 /tmp/run.log 2>/dev/null"], quiet=True)
                     tail = (r2.get("stdout", "") or "").strip().split("\n")[-1].strip()
                 except RuntimeError:
                     tail = "?"
@@ -179,7 +192,7 @@ def run_experiment(
         log = ""
         if not session_expired:
             try:
-                r = ex(sb, ["cat", "/tmp/run.log"], quiet=True)
+                r = await _exec(client, sb, ["cat", "/tmp/run.log"], quiet=True)
                 log = r.get("stdout", "") or ""
             except RuntimeError:
                 if not quiet:
@@ -207,12 +220,12 @@ def run_experiment(
             "log": log,
         }
 
-    finally:
+      finally:
         if sb:
             if not quiet:
                 print(f"  {D}Terminating sandbox...{X}", file=sys.stderr)
             try:
-                tempo("/sandbox/terminate", {"sandbox_id": sb}, quiet=True)
+                await _post(client, "/sandbox/terminate", {"sandbox_id": sb}, quiet=True)
             except Exception:
                 pass
 
