@@ -7,9 +7,10 @@ Train [nanoGPT](https://github.com/karpathy/nanoGPT) on a cloud GPU, paid with s
 ## Quick start
 
 ```bash
-# 1. Install pympp + fund wallet
+# 1. Install pympp + set wallet keys
 pip install "pympp[tempo]"
-export TEMPO_PRIVATE_KEY="0x..."
+export TEMPO_PRIVATE_KEY="0x..."        # access key or EOA private key
+export TEMPO_ROOT_ACCOUNT="0x..."       # smart wallet address (if using access key)
 
 # 2. Train a GPT on Shakespeare, paid with stablecoins
 python run.py

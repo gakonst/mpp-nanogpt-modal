@@ -20,7 +20,8 @@ B, D, G, Y, C, M, X = "\033[1m", "\033[2m", "\033[32m", "\033[33m", "\033[36m", 
 
 def _make_client():
     account = TempoAccount.from_env()
-    method = tempo_method(account=account, intents={"charge": ChargeIntent()})
+    root_account = os.environ.get("TEMPO_ROOT_ACCOUNT")
+    method = tempo_method(account=account, root_account=root_account, intents={"charge": ChargeIntent()})
     return Client(methods=[method])
 
 
